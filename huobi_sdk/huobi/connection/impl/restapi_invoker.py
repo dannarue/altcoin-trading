@@ -53,16 +53,14 @@ def call_sync(request, is_checked=False):
         response = session.get(request.host + request.url, headers=request.header)
         if is_checked is True:
             return response.text
-        with open(response.text, encoding='utf-8') as f:
-            dict_data = json.loads(f)
+        dict_data = json.loads(response.text)
         # print("call_sync  === recv data : ", dict_data)
         check_response(dict_data)
         return request.json_parser(dict_data)
 
     elif request.method == "POST":
         response = session.post(request.host + request.url, data=json.dumps(request.post_body), headers=request.header)
-        with open(response.text, encoding='utf-8') as f:
-            dict_data = json.loads(f)
+        dict_data = json.loads(response.text)
         # print("call_sync  === recv data : ", dict_data)
         check_response(dict_data)
         return request.json_parser(dict_data)
@@ -89,8 +87,7 @@ def call_sync_perforence_test(request, is_checked=False):
         inner_end_time = time.time()
         cost_manual = round(inner_end_time - inner_start_time, 6)
         req_cost = response.elapsed.total_seconds()
-        with open(response.text, encoding='utf-8') as f:
-            dict_data = json.loads(f)
+        dict_data = json.loads(response.text)
         # print("call_sync  === recv data : ", dict_data)
         check_response(dict_data)
         return request.json_parser(dict_data), req_cost, cost_manual
