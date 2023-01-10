@@ -1,0 +1,17 @@
+## ---- Huobi SDK files ----
+### Venv ###
+huobi_sdk/venv/
+
+### Build File ###
+huobi_sdk/.idea/
+huobi_sdk/build/
+huobi_sdk/dist/
+huobi_sdk/huobi_client.egg-info/
+
+### Python ###
+huobi_sdk/__pycache__
+huobi_sdk/*.pyc
+huobi_sdk/huobi/privateconfig.py
+
+### Other ###
+huobi_sdk/.DS_Store
