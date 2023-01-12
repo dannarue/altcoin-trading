@@ -1,3 +1,8 @@
+## Main
+__pycache__
+api_keys.py
+
+
 ## ---- Huobi SDK files ----
 ### Venv ###
 huobi_sdk/venv/
@@ -12,6 +17,7 @@ huobi_sdk/huobi_client.egg-info/
 huobi_sdk/__pycache__
 huobi_sdk/*.pyc
 huobi_sdk/huobi/privateconfig.py
+huobi_sdk/privateconfig.py
 
 ### Other ###
 huobi_sdk/.DS_Store
