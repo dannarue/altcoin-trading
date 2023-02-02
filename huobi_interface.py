@@ -14,6 +14,16 @@ class HuobiInterface():
     def __init__(self, access_key, secret_key, host):
         pass
 
+    def get_symbols(self):
+        pass
+
+    def subscribe_to_candlestick(self, symbol, interval, callback_func):
+        pass
+
+    def request_trades(self, symbol, callback_func):
+        pass
+    
+
 
 class HuobiAPI(HuobiInterface):
     def __init__(self, access_key, secret_key, host="api.huobi.pro"):

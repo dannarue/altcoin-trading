@@ -9,6 +9,7 @@ import csv
 import matplotlib.pyplot as plt
 import json
 import time
+import sys
 
 # local imports
 import huobi_interface as huobi_interface
@@ -17,6 +18,10 @@ from huobi.model.market import *
 
 # ---------------------------- CONSTANTS ----------------------------
 EXCLUDED_COINS = ["btcusdt","ethusdt"]
+INTERVAL = 5
+DURATION = 120
+SIMULTANEOUS_REQUESTS = 5
+TIMEOUT = 10
 
 # ---------------------------- CLASSES ----------------------------
 
@@ -165,7 +170,6 @@ class DataCollectionThread(threading.Thread):
         for trade in trade_list:
             data.append([trade.tradeId, trade.price, trade.amount, trade.direction, trade.ts])
         self.data_store.write_to_csv(data)
-        print(f"{self.name} - {data}")
         if (self._timeout_cb()):
             self.stop()
     
@@ -178,7 +182,8 @@ class DataCollectionThread(threading.Thread):
  
 def main():
     huobi_api, huobi_symbols = huobi_setup()
-    huobi_get_trades(huobi_api, huobi_symbols)
+    #huobi_get_trades(huobi_api, huobi_symbols)
+    huobi_staggered_get_trades(huobi_api, huobi_symbols)
 
 def huobi_setup():
     """
@@ -195,6 +200,19 @@ def huobi_setup():
 
     return huobi_api, hb_symbols
 
+def huobi_staggered_get_trades(hb_api, hb_symbols):
+    # Create threads for x symbols at a time to avoid rate limit
+    threads = []
+    for i in range(0, len(hb_symbols), SIMULTANEOUS_REQUESTS):
+        threads.append(threading.Thread(target=huobi_get_trades, args=(hb_api, hb_symbols[i:i+SIMULTANEOUS_REQUESTS])))
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        threads = []
+        time.sleep(TIMEOUT)
+
+
 def huobi_get_trades(hb_api, hb_symbols):
     """
     Create threads for each symbol and start collecting trades
@@ -204,7 +222,7 @@ def huobi_get_trades(hb_api, hb_symbols):
     # create new threads
     print("Creating threads")
     for symbol in hb_symbols:
-        thread = DataCollectionThread(thread_id="temp", name=f"{symbol}_trades", exchange="huobi", symbol=symbol, metric="trades", interval=1, duration=10)
+        thread = DataCollectionThread(thread_id="temp", name=f"{symbol}_trades", exchange="huobi", symbol=symbol, metric="trades", interval=INTERVAL, duration=DURATION)
         threads.append(thread)
         print(f"Created thread for {symbol}")
 
