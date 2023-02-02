@@ -1,7 +1,12 @@
 ## Main
 __pycache__
-api_keys.py
 
+## Keys
+api_keys.py
+huobi_sdk/privateconfig.py
+
+# CSVs
+data/
 
 ## ---- Huobi SDK files ----
 ### Venv ###
@@ -18,6 +23,9 @@ huobi_sdk/__pycache__
 huobi_sdk/*.pyc
 huobi_sdk/huobi/privateconfig.py
 huobi_sdk/privateconfig.py
+
+### Pycache files ###
+huobi_sdk/huobi/__pycache__
 
 ### Other ###
 huobi_sdk/.DS_Store
