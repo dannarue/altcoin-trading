@@ -12,19 +12,22 @@ import time
 import sys
 
 # local imports
+from classes.interface_classes import Interface, DataStore, SymbolsManagerBase
+
+# HuobiSDK imports
 import huobi_interface as huobi_interface
 import api_keys as api_keys
 from huobi.model.market import *
 
 # ---------------------------- CONSTANTS ----------------------------
 EXCLUDED_COINS = ["btcusdt","ethusdt"]
-INTERVAL = 5
-DURATION = 120
-SIMULTANEOUS_REQUESTS = 5
-TIMEOUT = 10
+INTERVAL = 20 # in seconds, how often to collect data
+DURATION = 240 # in seconds, how long to collect data for
+SIMULTANEOUS_REQUESTS = 5 # number of requests to make at once - prevents rate limiting
+SLEEP_BETWEEN_THREAD_GEN = 10 # in seconds, how long to wait between generating threads
 
 # ---------------------------- CLASSES ----------------------------
-
+# Factory classes for exchanges
 class APIFactory:
     """
     Returns API instance for input exchange
@@ -37,76 +40,24 @@ class APIFactory:
             return huobi_interface.HuobiAPI(api_keys.hb_api_key, api_keys.hb_secret_key)
         else:
             raise Exception("Exchange not supported")
-
-
-class DataStore:
+        
+class SymbolManagerFactory:
     """
-    Stores data from API
+    Returns SymbolManager instance for input exchange
     """
-    def __init__(self, exchange: str, symbol: str, metric: str, csv_name: str = None):
+    def __init__(self, exchange: str, interface: Interface):
         self.exchange = exchange
-        self.data = []
-        self.symbol = symbol
-        self.metric = metric
-        self.csv_name = self._set_csv_name(csv_name)
-        self._empty_csv()
+        self.interface = interface
 
-    def _set_csv_name(self, csv_name: str):
-        name = csv_name
-        if csv_name is None:
-            name = f"data/{self.exchange}_data/{self.exchange}_{self.symbol}_{self.metric}.csv"
-        return name
-    
-    def _empty_csv(self):
-        """Remove current contents of csv file"""
-        with open(self.csv_name, 'w') as f:
-            pass
-
-    def store_data(self, data):
-        self.data.append(data)
-
-    def get_data(self):
-        return self.data
-    
-    def write_to_csv(self, data):
-        with open(self.csv_name, 'w') as f:
-            writer = csv.writer(f)
-            writer.writerow(data)
-
-class SymbolsManager:
-    """
-    Provides utility functions for symbols
-    1. Converting to dataframe
-    2. Filtering symbols
-    """
-    def __init__(self, exchange: str):
-        self.exchange = exchange
-
-    def convert_to_dataframe(self, symbols: list):
+    def get_symbol_manager(self):
         if self.exchange == "huobi":
-            df = pd.DataFrame().from_dict(symbols)
+            return huobi_interface.HuobiSymbolsManager(self.interface)
         else:
-            df = pd.DataFrame(symbols)
-        return df
+            raise Exception("Exchange not supported")
 
-    def filter_excluded(self, symbols: pd.DataFrame, excluded_coins: list = []):
-        filtered_symbols = []
-        for index, row in symbols.iterrows():
-            if row["data"]["symbol"] not in excluded_coins:
-                filtered_symbols.append(row["data"]["symbol"])
-        return filtered_symbols
-
-    def filter_offline_coins(self, symbols: pd.DataFrame):
-        filtered_symbols = []
-        for index, row in symbols.iterrows():
-            if row["data"]["state"] == "online":
-                filtered_symbols.append(row["data"]["symbol"])
-        return filtered_symbols
-    
 
 # Threading classes
-
-class DataCollectionThread(threading.Thread):
+class ThreadingBase(threading.Thread):
     def __init__(self, thread_id: str, name: str, exchange: str, symbol: str, metric: str, interval: int = None, data_store: DataStore = None, duration: int = None):
         threading.Thread.__init__(self)
         self.thread_id = thread_id
@@ -121,26 +72,18 @@ class DataCollectionThread(threading.Thread):
 
         self.data_store = data_store
         if self.data_store is None:
-            self.data_store = DataStore(self.exchange, self.symbol, self.metric, f"data/{self.exchange}_data/{self.exchange}_{self.symbol}_{self.metric}.csv")
+            self.data_store = DataStore(self.exchange, self.symbol, self.metric, f"data/{self.exchange}/{self.metric}/{self.symbol}.csv")
 
         self.duration = duration
         if self.duration is None:
             self.duration = 999999
 
         self.start_time = time.time()
-
         self._stop_event = threading.Event()
     
     def _get_api(self):
         api_factory = APIFactory(self.exchange)
         return api_factory.get_api()
-    
-    def _test_supported_apis(self):
-        if self.exchange == "huobi":
-            if self.metric == "trades":
-                return True
-        else:
-            return False
     
     def _timeout_cb(self):
         current_duration = time.time() - self.start_time
@@ -149,56 +92,91 @@ class DataCollectionThread(threading.Thread):
             return True
         else:
             return False
+        
+    def stop(self):
+        self._stop_event.set()
+    
+    def stopped(self):
+        return self._stop_event.is_set()
     
     def run(self):
         print(f"Starting {self.name}")
         self.start_time = time.time()
-        self.data_collection_loop()
+        self.collection_loop()
         print(f"Exiting {self.name}")
         self.stop()
     
-    def stop(self):
-        self._stop_event.set()
+    def collection_loop(self):
+        raise Exception("Not implemented")
 
-    def stopped(self):
-        return self._stop_event.is_set()
+
+class TradingDataCollectionThread(ThreadingBase):
+    def __init__(self, thread_id: str, name: str, exchange: str, symbol: str, metric: str, interval: int = None, data_store: DataStore = None, duration: int = None):
+        ThreadingBase.__init__(self, thread_id, name, exchange, symbol, metric, interval, data_store, duration)
     
     def trading_data_callback(self, trade_data: TradeDetailReq):
         self.data_store.store_data(trade_data)
         trade_list = trade_data.data
         data = []
         for trade in trade_list:
-            data.append([trade.tradeId, trade.price, trade.amount, trade.direction, trade.ts])
-        self.data_store.write_to_csv(data)
+            print(f"{self.name} - {trade.tradeId} - {trade.price} - {trade.amount} - {trade.direction} - {trade.ts}")
+            try:
+                self.data_store.write_trade_to_csv([trade.tradeId, trade.price, trade.amount, trade.direction, trade.ts], id_index=0)
+            except Exception as e:
+                print(f"{self.name} - {e}")
+        
         if (self._timeout_cb()):
             self.stop()
     
-    def data_collection_loop(self):
+    def collection_loop(self):
         api = self._get_api()
         api.request_trades(self.symbol, self.trading_data_callback)
+        while (not self._timeout_cb()):
+            time.sleep(self.interval)
+            #api.request_trades(self.symbol, self.trading_data_callback)
             
+
+class KlineDataCollectionThread(ThreadingBase):
+    def __init__(self, thread_id: str, name: str, exchange: str, symbol: str, metric: str, interval: int = None, data_store: DataStore = None, duration: int = None):
+        ThreadingBase.__init__(self, thread_id, name, exchange, symbol, metric, interval, data_store, duration)
+    
+    def collection_loop(self):
+        api = self._get_api()
+        api.subscribe_to_candlestick(self.symbol)
+        while (not self._timeout_cb()):
+            time.sleep(self.interval)
 
 # ---------------------------- FUNCTIONS ----------------------------
  
 def main():
     huobi_api, huobi_symbols = huobi_setup()
     #huobi_get_trades(huobi_api, huobi_symbols)
-    huobi_staggered_get_trades(huobi_api, huobi_symbols)
+    #huobi_staggered_get_trades(huobi_api, huobi_symbols)
+    huobi_staggered_get_klines(huobi_api, huobi_symbols)
 
 def huobi_setup():
     """
     Returns API instance and list of supported symbols
     """
     huobi_api = APIFactory("huobi").get_api()
+    huobi_symbols_manager = SymbolManagerFactory("huobi", huobi_api).get_symbol_manager()
 
     # get coins that are online and not excluded
     huobi_symbols = huobi_api.get_symbols()
-    hb_symbols_df = SymbolsManager("huobi").convert_to_dataframe(huobi_symbols)
-    hb_symbols_excluded = SymbolsManager("huobi").filter_excluded(hb_symbols_df, EXCLUDED_COINS)
-    hb_symbols_offline = SymbolsManager("huobi").filter_offline_coins(hb_symbols_df)
-    hb_symbols = list(set(hb_symbols_excluded) & set(hb_symbols_offline))
-
+    hb_symbols = huobi_set_coins_to_track(huobi_symbols, huobi_symbols_manager)
     return huobi_api, hb_symbols
+
+def huobi_set_coins_to_track(hb_symbols: list, hb_symbols_manager: SymbolsManagerBase):
+    """
+    Returns list of coins to track
+    """
+    #hb_symbols_df = hb_symbols_manager.convert_to_dataframe(hb_symbols)
+    #hb_symbols_excluded = hb_symbols_manager.filter_excluded(hb_symbols_df, EXCLUDED_COINS)
+    #hb_symbols_offline = hb_symbols_manager.filter_offline(hb_symbols_df)
+    #hb_symbols = list(set(hb_symbols_excluded) & set(hb_symbols_offline))
+    #hb_symbols = ["btcusdt", "ethusdt"]
+    hb_symbols = ["ethusdt"]
+    return hb_symbols
 
 def huobi_staggered_get_trades(hb_api, hb_symbols):
     # Create threads for x symbols at a time to avoid rate limit
@@ -210,31 +188,55 @@ def huobi_staggered_get_trades(hb_api, hb_symbols):
         for t in threads:
             t.join()
         threads = []
-        time.sleep(TIMEOUT)
-
+        time.sleep(SLEEP_BETWEEN_THREAD_GEN)
 
 def huobi_get_trades(hb_api, hb_symbols):
     """
     Create threads for each symbol and start collecting trades
     """
     threads = []
-
     # create new threads
     print("Creating threads")
     for symbol in hb_symbols:
-        thread = DataCollectionThread(thread_id="temp", name=f"{symbol}_trades", exchange="huobi", symbol=symbol, metric="trades", interval=INTERVAL, duration=DURATION)
+        thread = TradingDataCollectionThread(thread_id="temp", name=f"{symbol}_trades", exchange="huobi", symbol=symbol, metric="trades", interval=INTERVAL, duration=DURATION)
         threads.append(thread)
         print(f"Created thread for {symbol}")
-
     # start new threads
     for t in threads:
         t.start()
-
     # wait for all threads to complete
     for t in threads:
         t.join()
 
+def huobi_staggered_get_klines(hb_api, hb_symbols):
+    # Create threads for x symbols at a time to avoid rate limit
+    threads = []
+    for i in range(0, len(hb_symbols), SIMULTANEOUS_REQUESTS):
+        threads.append(threading.Thread(target=huobi_get_klines, args=(hb_api, hb_symbols[i:i+SIMULTANEOUS_REQUESTS])))
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        threads = []
+        time.sleep(SLEEP_BETWEEN_THREAD_GEN)
 
+def huobi_get_klines(hb_api, hb_symbols):
+    """
+    Create threads for each symbol and start collecting klines
+    """
+    threads = []
+    # create new threads
+    print("Creating threads")
+    for symbol in hb_symbols:
+        thread = KlineDataCollectionThread(thread_id="temp", name=f"{symbol}_klines", exchange="huobi", symbol=symbol, metric="klines", interval=INTERVAL, duration=DURATION)
+        threads.append(thread)
+        print(f"Created thread for {symbol}")
+    # start new threads
+    for t in threads:
+        t.start()
+    # wait for all threads to complete
+    for t in threads:
+        t.join()
 
 if __name__ == "__main__":
     main()    

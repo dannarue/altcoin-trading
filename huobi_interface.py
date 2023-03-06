@@ -1,31 +1,22 @@
+# ====================== Imports ======================
 # Library imports
 import requests
 import pydoc
+import pandas as pd
 
 # Local imports
+from classes.interface_classes import Interface, DataStore, SymbolsManagerBase
+
+# HuobiSDK imports
 import huobi as hb
 from huobi.client.market import MarketClient
 from huobi.constant import *
 from huobi.exception.huobi_api_exception import HuobiApiException
 from huobi.model.market import *
 
+# ====================== Classes ======================
 
-class HuobiInterface():
-    def __init__(self, access_key, secret_key, host):
-        pass
-
-    def get_symbols(self):
-        pass
-
-    def subscribe_to_candlestick(self, symbol, interval, callback_func):
-        pass
-
-    def request_trades(self, symbol, callback_func):
-        pass
-    
-
-
-class HuobiAPI(HuobiInterface):
+class HuobiAPI(Interface):
     def __init__(self, access_key, secret_key, host="api.huobi.pro"):
         super().__init__(access_key, secret_key, host)
         self.__access_key = access_key
@@ -67,10 +58,19 @@ class HuobiAPI(HuobiInterface):
         market_client.req_trade_detail(symbol, callback_func, error)
 
 
+class HuobiSymbolsManager(SymbolsManagerBase):
+    def __init__(self, interface: Interface):
+        self.interface = interface
 
+    def convert_to_dataframe(self, symbols: list):
+        df = pd.DataFrame().from_dict(symbols)
+        return df
 
-
-
-
+    def filter_excluded(self, symbols: pd.DataFrame, excluded_coins: list = []):
+        return super().filter_excluded(symbols, excluded_coins)
     
+    def filter_offline(self, symbols: pd.DataFrame):
+        return super().filter_offline(symbols)
+        
+
 
