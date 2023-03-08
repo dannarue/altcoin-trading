@@ -4,5 +4,5 @@ aiohttp==3.6.2
 websocket_client==0.57.0
 pandas
 matplotlib
-aiofiles
-aiocsv
+websockets
+kucoin-python

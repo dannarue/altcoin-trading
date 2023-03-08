@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import json
 import time
 import sys
+import websockets
 
 # local imports
 from classes.interface_classes import Interface, DataStore, SymbolsManagerBase
@@ -19,6 +20,9 @@ import huobi_interface as huobi_interface
 import api_keys as api_keys
 from huobi.model.market import *
 from huobi.constant import *
+
+# KucoinSDK imports
+import kucoin_interface
 
 # ---------------------------- CONSTANTS ----------------------------
 EXCLUDED_COINS = ["btcusdt","ethusdt"]
@@ -40,6 +44,8 @@ class APIFactory:
     def get_api(self):
         if self.exchange == "huobi":
             return huobi_interface.HuobiAPI(api_keys.hb_api_key, api_keys.hb_secret_key)
+        elif self.exchange == "kucoin":
+            return kucoin_interface.KucoinAPI(api_keys.kc_api_key, api_keys.kc_secret_key)
         else:
             raise Exception("Exchange not supported")
         
@@ -54,6 +60,8 @@ class SymbolManagerFactory:
     def get_symbol_manager(self):
         if self.exchange == "huobi":
             return huobi_interface.HuobiSymbolsManager(self.interface)
+        elif self.exchange == "kucoin":
+            return kucoin_interface.KucoinSymbolsManager(self.interface)
         else:
             raise Exception("Exchange not supported")
 
@@ -111,8 +119,8 @@ class ThreadingBase(threading.Thread):
     def collection_loop(self):
         raise Exception("Not implemented")
 
-
-class TradingDataCollectionThread(ThreadingBase):
+# -------------------- HB data collection threads --------------------
+class HBTradingDataCollectionThread(ThreadingBase):
     def __init__(self, thread_id: str, name: str, exchange: str, symbol: str, metric: str, interval: int = None, data_store: DataStore = None, duration: int = None):
         ThreadingBase.__init__(self, thread_id, name, exchange, symbol, metric, interval, data_store, duration)
     
@@ -138,7 +146,7 @@ class TradingDataCollectionThread(ThreadingBase):
             api.request_trades(self.symbol, self.trading_data_callback)
             
 
-class KlineDataCollectionThread(ThreadingBase):
+class HBKlineDataCollectionThread(ThreadingBase):
     def __init__(self, thread_id: str, name: str, exchange: str, symbol: str, metric: str, interval: int = None, data_store: DataStore = None, duration: int = None):
         ThreadingBase.__init__(self, thread_id, name, exchange, symbol, metric, interval, data_store, duration)
     
@@ -159,14 +167,85 @@ class KlineDataCollectionThread(ThreadingBase):
         #while (not self._timeout_cb()):
         #    time.sleep(self.interval)
 
-# ---------------------------- FUNCTIONS ----------------------------
- 
-def main():
-    huobi_api, huobi_symbols = huobi_setup()
-    #huobi_get_trades(huobi_api, huobi_symbols)
-    #huobi_staggered_get_trades(huobi_api, huobi_symbols)
-    huobi_staggered_get_klines(huobi_api, huobi_symbols)
+# -------------------- KUCOIN data collection threads --------------------
+class KCKlineDataCollectionThread(ThreadingBase):
+    def __init__(self, thread_id: str, name: str, exchange: str, symbol: str, metric: str, interval: int = None, data_store: DataStore = None, duration: int = None):
+        ThreadingBase.__init__(self, thread_id, name, exchange, symbol, metric, interval, data_store, duration)
+    
+    def _process_data(self, candles: list):
+        start_time = candles[0]
+        end_time = candles[6]
+        open_price = candles[1]
+        close_price = candles[2]
+        high_price = candles[3]
+        low_price = candles[4]
+        volume = candles[5]
+        return [start_time, end_time, open_price, close_price, high_price, low_price, volume]
 
+    def kline_data_callback(self, kline_data: dict):
+        kline_tick = kline_data["data"]
+        candles = kline_tick["candles"]
+        try:
+            self.data_store.write_data_to_csv(self._process_data(candles), id_index=0)
+        except Exception as e:
+            print(f"{self.name} - {e}")
+        
+        if (self._timeout_cb()):
+            self.stop()
+    
+    def collection_loop(self):
+        api = self._get_api()
+        api.subscribe_to_candlestick(self.symbol, interval="1min", callback_func=self.kline_data_callback, duration=self.duration) # needs additional duration parameter
+        #while (not self._timeout_cb()):
+        #    time.sleep(self.interval)
+
+# ---------------------------- FUNCTIONS ----------------------------
+
+# ---------------------------- KUCOIN ----------------------------
+def kucoin_setup():
+    """
+    Returns API instance and list of supported symbols
+    """
+    kucoin_api = APIFactory("kucoin").get_api()
+    kucoin_symbols_manager = SymbolManagerFactory("kucoin", kucoin_api).get_symbol_manager()
+
+    # get coins that are online and not excluded
+    kucoin_symbols = kucoin_api.get_symbols()
+    kc_symbols = kucoin_set_coins_to_track(kucoin_symbols, kucoin_symbols_manager)
+    return kucoin_api, kc_symbols
+
+def kucoin_set_coins_to_track(kc_symbols: list, kc_symbols_manager: SymbolsManagerBase):
+    """
+    Returns list of coins to track
+    """
+    kc_symbols_df = kc_symbols_manager.convert_to_dataframe(kc_symbols)
+    kc_symbols_excluded = kc_symbols_manager.filter_excluded(kc_symbols_df)
+    kc_symbols_offline = kc_symbols_manager.filter_offline(kc_symbols_df)
+    kc_symbols = list(set(kc_symbols_excluded) & set(kc_symbols_offline))
+
+    kc_symbols = ["BTC-USDT", "ETH-USDT"]
+    return kc_symbols
+
+def kucoin_get_klines(kc_api, kc_symbols: list):
+    """
+    Create threads to get klines for each symbol
+    """
+    threads = []
+    # create new threads
+    print("Creating threads")
+    for symbol in kc_symbols:
+        thread = KCKlineDataCollectionThread(thread_id="temp", name=f"{symbol}_klines", exchange="kucoin", symbol=symbol, metric="klines", interval=INTERVAL, duration=DURATION)
+        threads.append(thread)
+        print(f"Created thread for {symbol}")
+    # start new threads
+    for t in threads:
+        t.start()
+    # wait for all threads to complete
+    for t in threads:
+        t.join()
+
+
+# ---------------------------- HUOBI ----------------------------
 def huobi_setup():
     """
     Returns API instance and list of supported symbols
@@ -210,7 +289,7 @@ def huobi_get_trades(hb_api, hb_symbols):
     # create new threads
     print("Creating threads")
     for symbol in hb_symbols:
-        thread = TradingDataCollectionThread(thread_id="temp", name=f"{symbol}_trades", exchange="huobi", symbol=symbol, metric="trades", interval=INTERVAL, duration=DURATION)
+        thread = HBTradingDataCollectionThread(thread_id="temp", name=f"{symbol}_trades", exchange="huobi", symbol=symbol, metric="trades", interval=INTERVAL, duration=DURATION)
         threads.append(thread)
         print(f"Created thread for {symbol}")
     # start new threads
@@ -240,7 +319,7 @@ def huobi_get_klines(hb_api, hb_symbols):
     # create new threads
     print("Creating threads")
     for symbol in hb_symbols:
-        thread = KlineDataCollectionThread(thread_id="temp", name=f"{symbol}_klines", exchange="huobi", symbol=symbol, metric="klines", interval=INTERVAL, duration=DURATION)
+        thread = HBKlineDataCollectionThread(thread_id="temp", name=f"{symbol}_klines", exchange="huobi", symbol=symbol, metric="klines", interval=INTERVAL, duration=DURATION)
         threads.append(thread)
         print(f"Created thread for {symbol}")
     # start new threads
@@ -249,6 +328,22 @@ def huobi_get_klines(hb_api, hb_symbols):
     # wait for all threads to complete
     for t in threads:
         t.join()
+
+# ---------------------------- MAIN ----------------------------
+def run_hb_threads():
+    huobi_api, huobi_symbols = huobi_setup()
+    #huobi_get_trades(huobi_api, huobi_symbols)
+    #huobi_staggered_get_trades(huobi_api, huobi_symbols)
+    huobi_staggered_get_klines(huobi_api, huobi_symbols)
+
+def run_kc_threads():
+    kc_api, kc_symbols = kucoin_setup()
+    #kucoin_get_trades(kc_api, kc_symbols)
+    kucoin_get_klines(kc_api, kc_symbols)
+
+def main():
+    run_kc_threads()
+    
 
 if __name__ == "__main__":
     main()    

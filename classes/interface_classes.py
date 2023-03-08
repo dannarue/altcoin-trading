@@ -126,10 +126,10 @@ class SymbolsManagerBase:
                 filtered_symbols.append(row["data"]["symbol"])
         return filtered_symbols
     
-    def filter_offline(self, symbols: pd.DataFrame):
+    def filter_offline(self, symbols: pd.DataFrame, key: str = "state"):
         filtered_symbols = []
         for index, row in symbols.iterrows():
-            if row["data"]["state"] == "online":
+            if row["data"][key] == "online":
                 filtered_symbols.append(row["data"]["symbol"])
         return filtered_symbols
 
