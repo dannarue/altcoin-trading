@@ -231,7 +231,7 @@ class WebsocketManage:
         elif ping_market_outer:
             #print("******** receive market ping pong ********", dict_data)
             ping_ts = ping_market_outer
-            self.__process_ping_on_market_line(ping_ts)
+            #self.__process_ping_on_market_line(ping_ts) - logging spam, can be uncommented for debugging
         else:
             #print("unknown data process, RX: ", gzip.decompress(message).decode("utf-8"))
             pass

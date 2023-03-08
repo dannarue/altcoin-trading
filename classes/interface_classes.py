@@ -35,14 +35,15 @@ class DataStore:
     """
     Stores data from API
     """
-    def __init__(self, exchange: str, symbol: str, metric: str, csv_name: str = None):
+    def __init__(self, exchange: str, symbol: str, metric: str, csv_name: str = None, id_buffer_size: int = 1000):
         self.exchange = exchange
         self.data = []
         self.symbol = symbol
         self.metric = metric
         self.csv_name = self._set_csv_name(csv_name)
         self._create_csv()
-        self._empty_csv()
+        #self._empty_csv()
+        self.id_buffer_size = id_buffer_size
         self.timestamps = {}
 
     def _set_csv_name(self, csv_name: str):
@@ -57,9 +58,10 @@ class DataStore:
             pass
     
     def _create_csv(self):
-        """Create csv file if it doesn't exist"""
-        print(os.access(self.csv_name, os.F_OK))
-        f = open(self.csv_name, 'r+')
+        """Create csv file if it doesn't exist. 
+        If this fails, it's likely a permissions error. Try creating the data folders manually.
+        """
+        f = open(self.csv_name, 'w')
         f.close()
 
     def store_data(self, data):
@@ -73,13 +75,13 @@ class DataStore:
         with open(self.csv_name, 'a') as f:
             writer = csv.writer(f)
             writer.writerow(data)
-
-    def write_trade_to_csv(self, trade: list, id_index: int = 0):
-        data = self._clean_data(trade)
+    
+    def write_data_to_csv(self, data: list, id_index: int = 0, error_msg: str = "Duplicate ID"):
+        data = self._clean_data(data)
         # Check timestamp is unique
         if data[id_index] in self.timestamps:
-            raise Exception("Duplicate trade ID")
-            return
+            #raise Exception(error_msg)
+            return # Return instead of raising exception to reduce log spam - can be uncommented for debugging
         else:
             self.timestamps[data[0]] = True
 
@@ -95,6 +97,16 @@ class DataStore:
                 data[i] = data[i].replace(" ", "")
                 data[i] = data[i].replace(",", "")
         return data
+    
+    def _check_unique_id(self, id: str):
+        if id in self.timestamps:
+            return False
+        else:
+            self.timestamps[id] = True
+            # Remove oldest id if buffer is full
+            if len(self.timestamps) > self.id_buffer_size:
+                self.timestamps.popitem(last=False)
+            return True
 
 
 class SymbolsManagerBase:

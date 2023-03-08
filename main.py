@@ -18,10 +18,12 @@ from classes.interface_classes import Interface, DataStore, SymbolsManagerBase
 import huobi_interface as huobi_interface
 import api_keys as api_keys
 from huobi.model.market import *
+from huobi.constant import *
 
 # ---------------------------- CONSTANTS ----------------------------
 EXCLUDED_COINS = ["btcusdt","ethusdt"]
 INTERVAL = 20 # in seconds, how often to collect data
+KLINE_INTERVAL = "1min" # interval for kline data
 DURATION = 240 # in seconds, how long to collect data for
 SIMULTANEOUS_REQUESTS = 5 # number of requests to make at once - prevents rate limiting
 SLEEP_BETWEEN_THREAD_GEN = 10 # in seconds, how long to wait between generating threads
@@ -115,13 +117,13 @@ class TradingDataCollectionThread(ThreadingBase):
         ThreadingBase.__init__(self, thread_id, name, exchange, symbol, metric, interval, data_store, duration)
     
     def trading_data_callback(self, trade_data: TradeDetailReq):
-        self.data_store.store_data(trade_data)
+        #self.data_store.store_data(trade_data)
         trade_list = trade_data.data
         data = []
         for trade in trade_list:
             print(f"{self.name} - {trade.tradeId} - {trade.price} - {trade.amount} - {trade.direction} - {trade.ts}")
             try:
-                self.data_store.write_trade_to_csv([trade.tradeId, trade.price, trade.amount, trade.direction, trade.ts], id_index=0)
+                self.data_store.write_data_to_csv([trade.tradeId, trade.price, trade.amount, trade.direction, trade.ts], id_index=0)
             except Exception as e:
                 print(f"{self.name} - {e}")
         
@@ -133,18 +135,29 @@ class TradingDataCollectionThread(ThreadingBase):
         api.request_trades(self.symbol, self.trading_data_callback)
         while (not self._timeout_cb()):
             time.sleep(self.interval)
-            #api.request_trades(self.symbol, self.trading_data_callback)
+            api.request_trades(self.symbol, self.trading_data_callback)
             
 
 class KlineDataCollectionThread(ThreadingBase):
     def __init__(self, thread_id: str, name: str, exchange: str, symbol: str, metric: str, interval: int = None, data_store: DataStore = None, duration: int = None):
         ThreadingBase.__init__(self, thread_id, name, exchange, symbol, metric, interval, data_store, duration)
     
+    def kline_data_callback(self, kline_data: CandlestickEvent):
+        #self.data_store.store_data(kline_data)
+        kline_tick = kline_data.tick # Candlestick object
+        try:
+            self.data_store.write_data_to_csv([kline_tick.id, kline_tick.amount, kline_tick.close, kline_tick.count, kline_tick.high, kline_tick.low, kline_tick.open, kline_tick.vol], id_index=0)
+        except Exception as e:
+            print(f"{self.name} - {e}")
+        
+        if (self._timeout_cb()):
+            self.stop()
+    
     def collection_loop(self):
         api = self._get_api()
-        api.subscribe_to_candlestick(self.symbol)
-        while (not self._timeout_cb()):
-            time.sleep(self.interval)
+        api.subscribe_to_candlestick(self.symbol, interval="1min", callback_func=self.kline_data_callback)
+        #while (not self._timeout_cb()):
+        #    time.sleep(self.interval)
 
 # ---------------------------- FUNCTIONS ----------------------------
  
@@ -170,12 +183,11 @@ def huobi_set_coins_to_track(hb_symbols: list, hb_symbols_manager: SymbolsManage
     """
     Returns list of coins to track
     """
-    #hb_symbols_df = hb_symbols_manager.convert_to_dataframe(hb_symbols)
-    #hb_symbols_excluded = hb_symbols_manager.filter_excluded(hb_symbols_df, EXCLUDED_COINS)
-    #hb_symbols_offline = hb_symbols_manager.filter_offline(hb_symbols_df)
-    #hb_symbols = list(set(hb_symbols_excluded) & set(hb_symbols_offline))
+    hb_symbols_df = hb_symbols_manager.convert_to_dataframe(hb_symbols)
+    hb_symbols_excluded = hb_symbols_manager.filter_excluded(hb_symbols_df, EXCLUDED_COINS)
+    hb_symbols_offline = hb_symbols_manager.filter_offline(hb_symbols_df)
+    hb_symbols = list(set(hb_symbols_excluded) & set(hb_symbols_offline))
     #hb_symbols = ["btcusdt", "ethusdt"]
-    hb_symbols = ["ethusdt"]
     return hb_symbols
 
 def huobi_staggered_get_trades(hb_api, hb_symbols):
