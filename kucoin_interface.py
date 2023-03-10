@@ -62,9 +62,9 @@ class KucoinSymbolsManager(SymbolsManagerBase):
         df = pd.DataFrame().from_dict(symbols)
         return df
 
-    def filter_excluded(self, symbols: pd.DataFrame, excluded_coins: list = []):
+    def filter_excluded(self, symbols: pd.DataFrame, excluded_coins: list = ["BTC-USDT", "ETH-USDT"]):
         return super().filter_excluded(symbols, excluded_coins)
     
     def filter_offline(self, symbols: pd.DataFrame):
-        return super().filter_offline(symbols, "enableTrading")
+        return super().filter_offline(symbols, "enableTrading", True)
         

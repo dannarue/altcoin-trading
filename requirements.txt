@@ -5,4 +5,7 @@ websocket_client==0.57.0
 pandas
 matplotlib
 websockets
+
+# exchange specific imports
 kucoin-python
+binance-connector
