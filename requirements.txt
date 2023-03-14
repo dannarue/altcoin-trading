@@ -1,11 +1,16 @@
+# data collection imports
 APScheduler==3.6.3
 requests==2.20.1
 aiohttp==3.6.2
 websocket_client==0.57.0
 pandas
-matplotlib
 websockets
 
 # exchange specific imports
 kucoin-python
 binance-connector
+
+# visualisation imports
+matplotlib
+scipy
+seaborn

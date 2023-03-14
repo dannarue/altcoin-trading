@@ -30,7 +30,9 @@ class KucoinAPI(Interface):
 
     def get_ticker(self, symbol):
         return self.__get("/api/v1/market/orderbook/level1", {"symbol": symbol})
-
+    
+    def get_kline_history(self, symbol, interval, limit):
+        return self.__get("/api/v1/market/candles", {"symbol": symbol, "type": interval, "limit": limit})
 
     def subscribe_to_candlestick(self, symbol="BTC-USDT", interval="1min", callback_func=None, duration=6000):
         def callback(kline_data):

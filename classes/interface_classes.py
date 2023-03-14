@@ -24,6 +24,9 @@ class Interface():
     def get_symbols(self):
         pass
 
+    def get_kline_history(self, symbol, interval, limit):
+        pass
+
     def subscribe_to_candlestick(self, symbol, interval, callback_func):
         pass
 

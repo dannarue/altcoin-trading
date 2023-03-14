@@ -30,8 +30,9 @@ import binance_interface
 # ---------------------------- CONSTANTS ----------------------------
 EXCLUDED_COINS = ["btcusdt","ethusdt"]
 INTERVAL = 20 # in seconds, how often to collect data
-KLINE_INTERVAL = "1min" # interval for kline data
-DURATION = 240 # in seconds, how long to collect data for
+KLINE_INTERVAL = "1hour" # interval for kline data
+KLINE_INTERVAL_SECONDS = 3600 # interval for kline data in seconds
+DURATION = 999999 # in seconds, how long to collect data for
 SIMULTANEOUS_REQUESTS = 5 # number of requests to make at once - prevents rate limiting
 SLEEP_BETWEEN_THREAD_GEN = 10 # in seconds, how long to wait between generating threads
 
@@ -130,10 +131,48 @@ class KlineIntervals:
     def get_interval_seconds(self, interval: str):
         return self.intervals[interval]
 
+class HistoricalKlines:
+    """
+    Gets historical klines for input symbol
+    """
+    def __init__(self, exchange: str, symbol: str, interval_seconds: int, interface: Interface):
+        self.exchange = exchange
+        self.symbol = symbol
+        # convert interval to exchange specific interval
+        self.interval = self._get_exchange_interval(interval_seconds)
+        self.interface = interface
+        self.store = DataStore(self.exchange, self.symbol, metric="klines", csv_name="data/{exchange}/kline_history/{symbol}_{interval}.csv".format(exchange=self.exchange, symbol=self.symbol, interval=self.interval))
+    
+    def _get_exchange_interval(self, interval_seconds: int):
+        kline_intervals = KlineIntervals(self.exchange)
+        for interval, seconds in kline_intervals.intervals.items():
+            if seconds == interval_seconds:
+                return interval
+        raise Exception("Interval not supported")
+    
+    def _format_klines(self, data):
+        if type(data) is dict:
+            # is a dict in form {id (unix time), open, close, low, high, amount, vol, count}
+            #print(candles)
+            return [data["id"], data["open"], data["close"], data["high"], data["low"], data["vol"], data["amount"]]
+        # is a list in form [start_time, end_time, open_price, close_price, high_price, low_price, volume]
+        return [data[0], data[6], data[1], data[2], data[3], data[4], data[5]]
+
+    def _store_klines(self, klines):
+        candles = klines["data"]
+        for candle in candles:
+            candle = self._format_klines(candle)
+            self.store.write_data_to_csv(candle, id_index=0)
+
+    def save_klines(self):
+        print("Getting klines for {symbol} on {exchange} with interval {interval}".format(symbol=self.symbol, exchange=self.exchange, interval=self.interval))
+        klines = self.interface.get_kline_history(self.symbol, self.interval, 1000)
+        self._store_klines(klines)
+
 
 # Threading classes
 class ThreadingBase(threading.Thread):
-    def __init__(self, thread_id: str, name: str, exchange: str, symbol: str, metric: str, kl_interval: int = None, sleep: int = None, data_store: DataStore = None, duration: int = None):
+    def __init__(self, thread_id: str, name: str, exchange: str, symbol: str, metric: str, kl_interval_seconds: int = None, sleep: int = None, data_store: DataStore = None, duration: int = None):
         threading.Thread.__init__(self)
         self.thread_id = thread_id
         self.name = name
@@ -142,8 +181,10 @@ class ThreadingBase(threading.Thread):
         self.metric = metric
         self.sleep = sleep
 
-        self.kl_interval = kl_interval
-        self.kl_interval_seconds = self._get_kl_interval_seconds()
+        self.kl_interval_seconds = kl_interval_seconds
+        if self.kl_interval_seconds is None:
+            self.kl_interval_seconds = 60
+        self.kl_interval = self._get_kline_interval_from_seconds(self.kl_interval_seconds)
 
         self.data_store = data_store
         if self.data_store is None:
@@ -167,6 +208,13 @@ class ThreadingBase(threading.Thread):
             return True
         else:
             return False
+    
+    def _get_kline_interval_from_seconds(self, seconds: int):
+        kline_intervals = KlineIntervals(self.exchange)
+        for interval, interval_seconds in kline_intervals.intervals.items():
+            if interval_seconds == seconds:
+                return interval
+        raise Exception("Interval not supported")
     
     def _check_kl_interval(self):
         # check if kline interval is valid
@@ -281,7 +329,6 @@ class BNCandlestickDataCollectionThread(ThreadingBase):
         ThreadingBase.__init__(self, thread_id, name, exchange, symbol, metric, kl_interval, sleep, data_store, duration)
     
     def _process_data(self, candles: list):
-        print(candles)
         start_time = candles[0]
         end_time = candles[6]
         open_price = candles[1]
@@ -344,7 +391,7 @@ def binance_get_klines(bn_api, bn_symbols: str):
     """
     threads = []
     for symbol in bn_symbols:
-        bn_thread = BNCandlestickDataCollectionThread(thread_id=f"BN_{symbol}", name=f"BN_{symbol}", exchange="binance", symbol=symbol, metric="klines", kl_interval="1m", sleep=INTERVAL, duration=60)
+        bn_thread = BNCandlestickDataCollectionThread(thread_id=f"BN_{symbol}", name=f"BN_{symbol}", exchange="binance", symbol=symbol, metric="klines", kl_interval=KLINE_INTERVAL_SECONDS, sleep=INTERVAL, duration=60)
         threads.append(bn_thread)
     
     for thread in threads:
@@ -386,7 +433,7 @@ def kucoin_get_klines(kc_api, kc_symbols: list):
     # create new threads
     print("Creating threads")
     for symbol in kc_symbols:
-        thread = KCKlineDataCollectionThread(thread_id="temp", name=f"{symbol}_klines", exchange="kucoin", symbol=symbol, metric="klines", kl_interval=KLINE_INTERVAL, sleep=INTERVAL, duration=DURATION)
+        thread = KCKlineDataCollectionThread(thread_id="temp", name=f"{symbol}_klines", exchange="kucoin", symbol=symbol, metric="klines", kl_interval=KLINE_INTERVAL_SECONDS, sleep=INTERVAL, duration=DURATION)
         threads.append(thread)
         print(f"Created thread for {symbol}")
     # start new threads
@@ -471,7 +518,7 @@ def huobi_get_klines(hb_api, hb_symbols):
     # create new threads
     print("Creating threads")
     for symbol in hb_symbols:
-        thread = HBKlineDataCollectionThread(thread_id="temp", name=f"{symbol}_klines", exchange="huobi", symbol=symbol, metric="klines", kl_interval=KLINE_INTERVAL, sleep=INTERVAL, duration=DURATION)
+        thread = HBKlineDataCollectionThread(thread_id="temp", name=f"{symbol}_klines", exchange="huobi", symbol=symbol, metric="klines", kl_interval=KLINE_INTERVAL_SECONDS, sleep=INTERVAL, duration=DURATION)
         threads.append(thread)
         print(f"Created thread for {symbol}")
     # start new threads
@@ -480,6 +527,7 @@ def huobi_get_klines(hb_api, hb_symbols):
     # wait for all threads to complete
     for t in threads:
         t.join()
+
 
 # ---------------------------- MAIN ----------------------------
 def run_hb_threads():
@@ -499,10 +547,59 @@ def run_bn_threads():
     #binance_get_trades(bn_api, bn_symbols)
     binance_get_klines(bn_api, bn_symbols)
 
+def get_historical_all():
+    # Setup
+    print("Setting up")
+    huobi_api, huobi_symbols = huobi_setup()
+    kc_api, kc_symbols = kucoin_setup()
+    bn_api, bn_symbols = binance_setup()
+
+    print("Getting historical klines")
+    # Get max historical klines for each exchange
+    for symbol in huobi_symbols:
+        HistoricalKlines("huobi", symbol, KLINE_INTERVAL_SECONDS, huobi_api).save_klines()
+    for symbol in kc_symbols:
+        HistoricalKlines("kucoin", symbol, KLINE_INTERVAL_SECONDS, kc_api).save_klines()
+    for symbol in bn_symbols:
+        HistoricalKlines("binance", symbol, KLINE_INTERVAL_SECONDS, bn_api).save_klines()
+
+def all_threads():
+    # Setup
+    huobi_api, huobi_symbols = huobi_setup()
+    kc_api, kc_symbols = kucoin_setup()
+    bn_api, bn_symbols = binance_setup()
+    
+    print("Starting threads")
+    # Create threads
+    threads = []
+    # Huobi
+    for symbol in huobi_symbols:
+        thread = HBKlineDataCollectionThread(thread_id="temp", name=f"{symbol}_klines", exchange="huobi", symbol=symbol, metric="klines", kl_interval=KLINE_INTERVAL_SECONDS, sleep=INTERVAL, duration=DURATION)
+        threads.append(thread)
+    # Kucoin
+    for symbol in kc_symbols:
+        thread = KCKlineDataCollectionThread(thread_id="temp", name=f"{symbol}_klines", exchange="kucoin", symbol=symbol, metric="klines", kl_interval=KLINE_INTERVAL_SECONDS, sleep=INTERVAL, duration=DURATION)
+        threads.append(thread)
+    # Binance
+    for symbol in bn_symbols:
+        thread = BNCandlestickDataCollectionThread(thread_id="temp", name=f"{symbol}_klines", exchange="binance", symbol=symbol, metric="klines", kl_interval=KLINE_INTERVAL_SECONDS, sleep=INTERVAL, duration=DURATION)
+        threads.append(thread)
+    
+    # Start threads - staggered
+    for i in range(0, len(threads), SIMULTANEOUS_REQUESTS):
+        for t in threads[i:i+SIMULTANEOUS_REQUESTS]:
+            t.start()
+        for t in threads[i:i+SIMULTANEOUS_REQUESTS]:
+            t.join()
+        time.sleep(SLEEP_BETWEEN_THREAD_GEN)
+
+
 def main():
-    run_kc_threads()
+    #run_kc_threads()
     #run_hb_threads()
     #run_bn_threads()
+    get_historical_all()
+    #all_threads()
     
 
 if __name__ == "__main__":

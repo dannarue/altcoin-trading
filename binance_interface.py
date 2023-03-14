@@ -27,9 +27,9 @@ class BinanceAPI(Interface):
 
     def get_symbols(self):
         return self.__get("/api/v3/exchangeInfo")["symbols"]
-
-    def get_candlestick(self, symbol, interval, size):
-        return self.__get("/api/v3/klines", {"symbol": symbol, "interval": interval, "limit": size})
+    
+    def get_kline_history(self, symbol, interval, limit):
+        return self.__get("/api/v3/klines", {"symbol": symbol, "interval": interval, "limit": limit})
 
     def subscribe_to_candlestick(self, symbol="btcusdt", interval="1m", callback_func=None):
         def callback(_, kline_data):

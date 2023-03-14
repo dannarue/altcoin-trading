@@ -29,8 +29,11 @@ class HuobiAPI(Interface):
     def get_symbols(self):
         return self.__get("/v1/common/symbols")
 
-    def get_candlestick(self, symbol, interval, size):
-        return self.__get("/market/history/kline", {"symbol": symbol, "period": interval, "size": size})
+    #def get_candlestick(self, symbol, interval, size):
+    #    return self.__get("/market/history/kline", {"symbol": symbol, "period": interval, "size": size})
+
+    def get_kline_history(self, symbol, interval, limit):
+        return self.__get("/market/history/kline", {"symbol": symbol, "period": interval, "size": limit})
 
     def subscribe_to_candlestick(self, symbol="btcusdt", interval="1min", callback_func=None):
         def callback(candlestick_event: 'CandlestickEvent'):
