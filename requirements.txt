@@ -11,6 +11,8 @@ kucoin-python
 binance-connector
 
 # visualisation imports
+ipykernel
 matplotlib
+matplotlib-venn
 scipy
 seaborn

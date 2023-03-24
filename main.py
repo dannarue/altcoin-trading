@@ -28,13 +28,16 @@ import kucoin_interface
 import binance_interface
 
 # ---------------------------- CONSTANTS ----------------------------
-EXCLUDED_COINS = ["btcusdt","ethusdt"]
+#EXCLUDED_COINS = ["btcusdt","ethusdt"]
+EXCLUDED_COINS = []
 INTERVAL = 20 # in seconds, how often to collect data
 KLINE_INTERVAL = "1hour" # interval for kline data
 KLINE_INTERVAL_SECONDS = 3600 # interval for kline data in seconds
 DURATION = 999999 # in seconds, how long to collect data for
 SIMULTANEOUS_REQUESTS = 5 # number of requests to make at once - prevents rate limiting
 SLEEP_BETWEEN_THREAD_GEN = 10 # in seconds, how long to wait between generating threads
+SLEEP_BETWEEN_HISTORY_REQUESTS = 1 # in seconds, how long to wait between history requests
+DELAY_AFTER_TIMEOUT = 20 # in seconds, how long to wait after a timeout
 
 # ---------------------------- CLASSES ----------------------------
 # Factory classes for exchanges
@@ -130,6 +133,38 @@ class KlineIntervals:
     
     def get_interval_seconds(self, interval: str):
         return self.intervals[interval]
+    
+class ErrorCodes():
+    """
+    Defines error codes for each exchange
+    """
+    def __init__(self, exchange: str):
+        self.exchange = exchange
+        self.error_codes = self._set_error_codes()
+
+    def _set_error_codes(self):
+        error_codes = {}
+        if self.exchange == "binance":
+            error_codes = {
+                "TOO_MANY_REQUESTS": -1003,
+                "TIMEOUT": -1001
+            }
+        elif self.exchange == "kucoin":
+            error_codes = {
+                "TOO_MANY_REQUESTS": 429,
+                "TIMEOUT": 504
+            }
+        elif self.exchange == "huobi":
+            error_codes = {
+                "TOO_MANY_REQUESTS": 429,
+                "TIMEOUT": 504
+            }
+        else:
+            raise Exception("Exchange not supported")
+        return error_codes
+    
+    def get_error_code(self, error_name: str):
+        return self.error_codes[error_name]
 
 class HistoricalKlines:
     """
@@ -142,7 +177,8 @@ class HistoricalKlines:
         self.interval = self._get_exchange_interval(interval_seconds)
         self.interface = interface
         self.store = DataStore(self.exchange, self.symbol, metric="klines", csv_name="data/{exchange}/kline_history/{symbol}_{interval}.csv".format(exchange=self.exchange, symbol=self.symbol, interval=self.interval))
-    
+        self.error_codes = ErrorCodes(self.exchange)
+
     def _get_exchange_interval(self, interval_seconds: int):
         kline_intervals = KlineIntervals(self.exchange)
         for interval, seconds in kline_intervals.intervals.items():
@@ -159,10 +195,35 @@ class HistoricalKlines:
         return [data[0], data[6], data[1], data[2], data[3], data[4], data[5]]
 
     def _store_klines(self, klines):
-        candles = klines["data"]
-        for candle in candles:
-            candle = self._format_klines(candle)
-            self.store.write_data_to_csv(candle, id_index=0)
+        try:
+            if type(klines) is dict:
+                candles = klines["data"]
+            else:
+                candles = klines
+            
+            for candle in candles:
+                candle = self._format_klines(candle)
+                self.store.write_data_to_csv(candle, id_index=0)
+            return
+        except Exception as e:
+            self._error_handler(e)
+    
+    def _error_handler(self, error):
+        if type(error) is dict:
+            if (error["code"] == self.error_codes.get_error_code("TOO_MANY_REQUESTS")):
+                print("Too many requests, sleeping for {DELAY_AFTER_TIMEOUT}  seconds")
+                time.sleep(DELAY_AFTER_TIMEOUT)
+                self.save_klines()
+            elif (error["code"] == self.error_codes.get_error_code("TIMEOUT")):
+                print("Timeout, sleeping for {DELAY_AFTER_TIMEOUT}  seconds")
+                time.sleep(DELAY_AFTER_TIMEOUT)
+                self.save_klines()
+            else:
+                print("Error getting klines for {symbol} on {exchange} with interval {interval}".format(symbol=self.symbol, exchange=self.exchange, interval=self.interval))
+                print(error)
+        else:
+            print("Error getting klines for {symbol} on {exchange} with interval {interval}".format(symbol=self.symbol, exchange=self.exchange, interval=self.interval))
+            print(error)
 
     def save_klines(self):
         print("Getting klines for {symbol} on {exchange} with interval {interval}".format(symbol=self.symbol, exchange=self.exchange, interval=self.interval))
@@ -377,12 +438,12 @@ def binance_set_coins_to_track(bn_symbols: list, bn_symbols_manager: SymbolsMana
     Returns list of coins to track
     """
     bn_symbols_df = bn_symbols_manager.convert_to_dataframe(bn_symbols)
-    bn_symbols_included = bn_symbols_manager.convert_to_list(bn_symbols_manager.filter_excluded(bn_symbols_df))
+    #bn_symbols_included = bn_symbols_manager.convert_to_list(bn_symbols_manager.filter_excluded(bn_symbols_df))
     bn_symbols_online = bn_symbols_manager.convert_to_list(bn_symbols_manager.filter_offline(bn_symbols_df))
-    bn_symbols = list(set(bn_symbols_included) & set(bn_symbols_online))
-
+    #bn_symbols = list(set(bn_symbols_included) & set(bn_symbols_online))
+    bn_symbols = bn_symbols_online
     # temp set to BTC AND ETH
-    bn_symbols = ["BTCUSDT", "ETHUSDT"]
+    #bn_symbols = ["BTCUSDT", "ETHUSDT"]
     return bn_symbols
 
 def binance_get_klines(bn_api, bn_symbols: str):
@@ -422,7 +483,7 @@ def kucoin_set_coins_to_track(kc_symbols: list, kc_symbols_manager: SymbolsManag
     kc_symbols_included = kc_symbols_manager.filter_excluded(kc_symbols_df)
     kc_symbols_online = kc_symbols_manager.filter_offline(kc_symbols_df)
     kc_symbols = list(set(kc_symbols_included) & set(kc_symbols_online))
-    #kc_symbols = ["BTC-USDT", "ETH-USDT"]
+    kc_symbols = ["BTC-USDT", "ETH-USDT"]
     return kc_symbols
 
 def kucoin_get_klines(kc_api, kc_symbols: list):
@@ -465,7 +526,7 @@ def huobi_set_coins_to_track(hb_symbols: list, hb_symbols_manager: SymbolsManage
     hb_symbols_excluded = hb_symbols_manager.filter_excluded(hb_symbols_df, EXCLUDED_COINS)
     hb_symbols_offline = hb_symbols_manager.filter_offline(hb_symbols_df)
     hb_symbols = list(set(hb_symbols_excluded) & set(hb_symbols_offline))
-    #hb_symbols = ["btcusdt", "ethusdt"]
+    hb_symbols = ["btcusdt", "ethusdt"]
     return hb_symbols
 
 def huobi_staggered_get_trades(hb_api, hb_symbols):
@@ -556,12 +617,15 @@ def get_historical_all():
 
     print("Getting historical klines")
     # Get max historical klines for each exchange
-    for symbol in huobi_symbols:
-        HistoricalKlines("huobi", symbol, KLINE_INTERVAL_SECONDS, huobi_api).save_klines()
+    #for symbol in huobi_symbols:
+    #    HistoricalKlines("huobi", symbol, KLINE_INTERVAL_SECONDS, huobi_api).save_klines()
+    #    time.sleep(SLEEP_BETWEEN_HISTORY_REQUESTS)
     for symbol in kc_symbols:
         HistoricalKlines("kucoin", symbol, KLINE_INTERVAL_SECONDS, kc_api).save_klines()
-    for symbol in bn_symbols:
-        HistoricalKlines("binance", symbol, KLINE_INTERVAL_SECONDS, bn_api).save_klines()
+        time.sleep(SLEEP_BETWEEN_HISTORY_REQUESTS)
+    #for symbol in bn_symbols:
+    #    HistoricalKlines("binance", symbol, KLINE_INTERVAL_SECONDS, bn_api).save_klines()
+    #    time.sleep(SLEEP_BETWEEN_HISTORY_REQUESTS)
 
 def all_threads():
     # Setup
