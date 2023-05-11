@@ -10,9 +10,14 @@ websockets
 kucoin-python
 binance-connector
 
+# data processing imports
+numpy
+scipy
+forex-python
+
 # visualisation imports
 ipykernel
 matplotlib
 matplotlib-venn
-scipy
 seaborn
+prettytable
