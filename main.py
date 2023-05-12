@@ -1,12 +1,10 @@
 # library imports
 import os
 import asyncio
-import aiofiles
-import aiocsv
 import threading
-import pandas as pd
+import pandas as pd # (https://pandas.pydata.org/)
 import csv
-import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt # (https://matplotlib.org/)
 import json
 import time
 import sys
@@ -15,7 +13,7 @@ import websockets
 # local imports
 from classes.interface_classes import Interface, DataStore, SymbolsManagerBase
 
-# Huobi imports
+# Huobi imports (https://huobiapi.github.io/docs/spot/v1/en/#change-log)
 import huobi_interface as huobi_interface
 import api_keys as api_keys
 from huobi.model.market import *

@@ -1,14 +1,13 @@
 # ====================== Imports ======================
 # Library imports
 import requests
-import pydoc
-import pandas as pd
+import pandas as pd # (https://pandas.pydata.org/)
 import asyncio
 
 # Local imports
 from classes.interface_classes import Interface, DataStore, SymbolsManagerBase
 
-# Binance imports
+# Binance imports (https://binance-docs.github.io/apidocs/spot/en/#introduction)
 from binance.spot import Spot as Client
 from binance.websocket.spot.websocket_api import SpotWebsocketAPIClient
 

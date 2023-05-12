@@ -1,13 +1,12 @@
 # ====================== Imports ======================
 # Library imports
 import requests
-import pydoc
-import pandas as pd
+import pandas as pd # (https://pandas.pydata.org/)
 
 # Local imports
 from classes.interface_classes import Interface, DataStore, SymbolsManagerBase
 
-# HuobiSDK imports
+# HuobiSDK imports (https://huobiapi.github.io/docs/spot/v1/en/#change-log)
 import huobi as hb
 from huobi.client.market import MarketClient
 from huobi.constant import *

@@ -1,14 +1,14 @@
 # =================== Imports ===================
 # Library imports
 import requests
-import pandas as pd
-import websockets
+import pandas as pd # (https://pandas.pydata.org/)
+import websockets # (https://websockets.readthedocs.io/en/stable/intro.html)
 import asyncio
 
 # Internal imports
 from classes.interface_classes import Interface, DataStore, SymbolsManagerBase
 
-# Kucoin SDK imports
+# Kucoin SDK imports (https://docs.kucoin.com/#client-libraries)
 from kucoin.client import WsToken
 from kucoin.ws_client import KucoinWsClient
 
